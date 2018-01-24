@@ -3,20 +3,18 @@
  */
 package au.org.ala.config;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
-import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -26,17 +24,13 @@ import org.apache.commons.configuration2.ConfigurationUtils;
 import org.apache.commons.configuration2.FileBasedConfiguration;
 import org.apache.commons.configuration2.ImmutableConfiguration;
 import org.apache.commons.configuration2.PropertiesConfiguration;
-import org.apache.commons.configuration2.builder.BasicConfigurationBuilder;
 import org.apache.commons.configuration2.builder.FileBasedConfigurationBuilder;
 import org.apache.commons.configuration2.builder.fluent.Parameters;
-import org.apache.commons.configuration2.convert.DefaultListDelimiterHandler;
 import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.apache.commons.configuration2.ex.ConversionException;
 import org.apache.commons.configuration2.io.AbsoluteNameLocationStrategy;
-import org.apache.commons.configuration2.io.ClasspathLocationStrategy;
 import org.apache.commons.configuration2.io.CombinedLocationStrategy;
 import org.apache.commons.configuration2.io.FileLocationStrategy;
-import org.apache.commons.configuration2.io.FileSystem;
 import org.apache.commons.configuration2.io.FileSystemLocationStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,8 +38,6 @@ import org.slf4j.LoggerFactory;
 import com.google.inject.AbstractModule;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
-import com.google.inject.Scopes;
-import com.google.inject.name.Names;
 
 /**
  * Provides access to configuration information used by Biocache Store NG.
@@ -55,7 +47,13 @@ import com.google.inject.name.Names;
  * 
  * @author Peter Ansell p_ansell@yahoo.com
  */
-public class AlaConfig {
+public abstract class AlaConfig {
+
+	/**
+	 * This is the system property that is looked for to find the configuration
+	 * location, if no other is specified.
+	 */
+	public static final String DEFAULT_SYSTEM_PROPERTY = "biocache.config";
 
 	protected static final Logger logger = LoggerFactory.getLogger(AlaConfig.class);
 
@@ -72,8 +70,6 @@ public class AlaConfig {
 	public static final String OVERRIDES_PROPERTIES = "/data/biocache/config/biocache-config.properties";
 
 	private final ImmutableConfiguration immutableConfig;
-
-	private volatile AbstractModule internalConfigModule;
 
 	private volatile Injector internalInjector;
 
@@ -94,8 +90,8 @@ public class AlaConfig {
 	 * @throws ConfigurationException
 	 *             If there is an issue setting up the configuration.
 	 */
-	public static AlaConfig getConfig() throws ConfigurationException {
-		Optional<String> overridesLocation = Optional.ofNullable(System.getProperty("biocache.config"));
+	public static ImmutableConfiguration getConfig() throws ConfigurationException {
+		Optional<String> overridesLocation = Optional.ofNullable(System.getProperty(DEFAULT_SYSTEM_PROPERTY));
 		return getConfig(Paths.get(overridesLocation.orElse(OVERRIDES_PROPERTIES)));
 	}
 
@@ -110,11 +106,12 @@ public class AlaConfig {
 	 * @throws ConfigurationException
 	 *             If there is an issue setting up the configuration.
 	 */
-	public static AlaConfig getConfig(Path pathToOverrides) throws ConfigurationException {
+	public static ImmutableConfiguration getConfig(Path pathToOverrides) throws ConfigurationException {
 		return getConfig(pathToOverrides, Paths.get(DEFAULTS_PROPERTIES));
 	}
 
-	public static AlaConfig getConfig(Path pathToOverrides, Path pathToDefaults) throws ConfigurationException {
+	public static ImmutableConfiguration getConfig(Path pathToOverrides, Path pathToDefaults)
+			throws ConfigurationException {
 
 		List<ClassLoader> customClassLoaders = Arrays.asList(AlaConfig.class.getClassLoader());
 
@@ -145,7 +142,9 @@ public class AlaConfig {
 		combinedConfiguration.addConfiguration(builderOverride.getConfiguration());
 		combinedConfiguration.addConfiguration(builderDefaults.getConfiguration());
 
-		return new AlaConfig(ConfigurationUtils.unmodifiableConfiguration(combinedConfiguration));
+		// return new
+		// AlaConfig(ConfigurationUtils.unmodifiableConfiguration(combinedConfiguration));
+		return ConfigurationUtils.unmodifiableConfiguration(combinedConfiguration);
 	}
 
 	/**
@@ -272,15 +271,18 @@ public class AlaConfig {
 	 * @return Returns a new instance of {@link AbstractModule} setup for this
 	 *         configuration instance.
 	 */
-	protected AbstractModule getNewModule() {
-		return new AbstractModule() {
+	protected abstract AbstractModule getNewModule();
 
-			@Override
-			protected void configure() {
-				Names.bindProperties(binder(), ConfigurationConverter.getProperties(immutableConfig));
-			}
-		};
-	}
+	// {
+	// return new AbstractModule() {
+	//
+	// @Override
+	// protected void configure() {
+	// Names.bindProperties(binder(),
+	// ConfigurationConverter.getProperties(immutableConfig));
+	// }
+	// };
+	// }
 
 	private Injector injector() {
 		Injector result = internalInjector;
@@ -495,7 +497,8 @@ public class AlaConfig {
 	}
 
 	public void outputConfig(Writer outputWriter) throws IOException {
-		ConfigurationConverter.getProperties(immutableConfig).store(outputWriter, "biocache-store-ng configuration");
+		ConfigurationConverter.getProperties(immutableConfig).store(outputWriter,
+				"ala-config configuration dump at: " + DateTimeFormatter.ISO_DATE_TIME.format(OffsetDateTime.now()));
 	}
 
 	public String stateProvinceLayerID() {
