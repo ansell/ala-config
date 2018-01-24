@@ -252,6 +252,9 @@ public abstract class AlaConfig {
 	 *            The configuration property to find
 	 * @param defaultValue
 	 *            The default to use if the property isn't present
+	 * @param splitChar
+	 *            The character to split the property String on to convert it to a
+	 *            set of values.
 	 * @return The value for the configuration property
 	 * @throws AlaConfigException
 	 *             If the property cannot be found in the configuration
