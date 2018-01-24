@@ -69,14 +69,17 @@ public abstract class AlaConfig {
 	 */
 	public static final String OVERRIDES_PROPERTIES = "/data/biocache/config/biocache-config.properties";
 
-	private final ImmutableConfiguration immutableConfig;
+	protected final ImmutableConfiguration immutableConfig;
 
 	private volatile Injector internalInjector;
 
 	/**
 	 * Use static helper methods instead.
+	 * 
+	 * @param immutableConfig
+	 *            The ImmutableConfiguration to use to find properties.
 	 */
-	private AlaConfig(ImmutableConfiguration immutableConfig) {
+	protected AlaConfig(ImmutableConfiguration immutableConfig) {
 		this.immutableConfig = immutableConfig;
 	}
 
@@ -85,12 +88,12 @@ public abstract class AlaConfig {
 	 * locations, checking the system property biocache.config to optionally
 	 * override {@link #OVERRIDES_PROPERTIES}
 	 * 
-	 * @return A Config object that will use the override properties were possible,
-	 *         but default to the defaults otherwise.
-	 * @throws ConfigurationException
+	 * @return An ImmutableConfiguration object that will use the override
+	 *         properties were possible, but default to the defaults otherwise.
+	 * @throws AlaConfigException
 	 *             If there is an issue setting up the configuration.
 	 */
-	public static ImmutableConfiguration getConfig() throws ConfigurationException {
+	public static ImmutableConfiguration getConfig() throws AlaConfigException {
 		Optional<String> overridesLocation = Optional.ofNullable(System.getProperty(DEFAULT_SYSTEM_PROPERTY));
 		return getConfig(Paths.get(overridesLocation.orElse(OVERRIDES_PROPERTIES)));
 	}
@@ -101,50 +104,66 @@ public abstract class AlaConfig {
 	 * 
 	 * @param pathToOverrides
 	 *            The path to the override properties locations
-	 * @return A Config object that will use the override properties were possible,
-	 *         but default to the defaults otherwise.
-	 * @throws ConfigurationException
+	 * @return An ImmutableConfiguration object that will use the override
+	 *         properties were possible, but default to the defaults otherwise.
+	 * @throws AlaConfigException
 	 *             If there is an issue setting up the configuration.
 	 */
-	public static ImmutableConfiguration getConfig(Path pathToOverrides) throws ConfigurationException {
+	public static ImmutableConfiguration getConfig(Path pathToOverrides) throws AlaConfigException {
 		return getConfig(pathToOverrides, Paths.get(DEFAULTS_PROPERTIES));
 	}
 
+	/**
+	 * Gets a configuration using the given defaults and the given override
+	 * properties locations.
+	 * 
+	 * @param pathToOverrides
+	 *            The path to the override properties locations
+	 * @param pathToDefaults
+	 *            The path to the default properties locations
+	 * @return An ImmutableConfiguration object that will use the override
+	 *         properties were possible, but default to the defaults otherwise.
+	 * @throws AlaConfigException
+	 *             If there is an issue setting up the configuration.
+	 */
 	public static ImmutableConfiguration getConfig(Path pathToOverrides, Path pathToDefaults)
-			throws ConfigurationException {
+			throws AlaConfigException {
+		try {
+			List<ClassLoader> customClassLoaders = Arrays.asList(AlaConfig.class.getClassLoader());
 
-		List<ClassLoader> customClassLoaders = Arrays.asList(AlaConfig.class.getClassLoader());
+			List<FileLocationStrategy> locationsOverrides = Arrays.asList(new AbsoluteNameLocationStrategy(),
+					new FileSystemLocationStrategy(), new AbsoluteClasspathLocationStrategy(customClassLoaders));
+			FileLocationStrategy locationStrategiesOverrides = new CombinedLocationStrategy(locationsOverrides);
+			Parameters paramsOverride = new Parameters();
+			FileBasedConfigurationBuilder<FileBasedConfiguration> builderOverride = new FileBasedConfigurationBuilder<FileBasedConfiguration>(
+					PropertiesConfiguration.class)
+							.configure(paramsOverride.properties().setFileName(pathToOverrides.toString())
 
-		List<FileLocationStrategy> locationsOverrides = Arrays.asList(new AbsoluteNameLocationStrategy(),
-				new FileSystemLocationStrategy(), new AbsoluteClasspathLocationStrategy(customClassLoaders));
-		FileLocationStrategy locationStrategiesOverrides = new CombinedLocationStrategy(locationsOverrides);
-		Parameters paramsOverride = new Parameters();
-		FileBasedConfigurationBuilder<FileBasedConfiguration> builderOverride = new FileBasedConfigurationBuilder<FileBasedConfiguration>(
-				PropertiesConfiguration.class)
-						.configure(paramsOverride.properties().setFileName(pathToOverrides.toString())
+									.setThrowExceptionOnMissing(false).setEncoding(StandardCharsets.UTF_8.name())
+									.setLocationStrategy(locationStrategiesOverrides));
 
-								.setThrowExceptionOnMissing(false).setEncoding(StandardCharsets.UTF_8.name())
-								.setLocationStrategy(locationStrategiesOverrides));
+			List<FileLocationStrategy> locationsDefaults = Arrays
+					.asList(new AbsoluteClasspathLocationStrategy(customClassLoaders));
+			FileLocationStrategy locationStrategiesDefaults = new CombinedLocationStrategy(locationsDefaults);
+			Parameters paramsDefaults = new Parameters();
+			FileBasedConfigurationBuilder<FileBasedConfiguration> builderDefaults = new FileBasedConfigurationBuilder<FileBasedConfiguration>(
+					PropertiesConfiguration.class)
+							.configure(paramsDefaults.properties().setFileName(pathToDefaults.toString())
 
-		List<FileLocationStrategy> locationsDefaults = Arrays
-				.asList(new AbsoluteClasspathLocationStrategy(customClassLoaders));
-		FileLocationStrategy locationStrategiesDefaults = new CombinedLocationStrategy(locationsDefaults);
-		Parameters paramsDefaults = new Parameters();
-		FileBasedConfigurationBuilder<FileBasedConfiguration> builderDefaults = new FileBasedConfigurationBuilder<FileBasedConfiguration>(
-				PropertiesConfiguration.class)
-						.configure(paramsDefaults.properties().setFileName(pathToDefaults.toString())
+									.setThrowExceptionOnMissing(true).setEncoding(StandardCharsets.UTF_8.name())
+									.setLocationStrategy(locationStrategiesDefaults));
 
-								.setThrowExceptionOnMissing(true).setEncoding(StandardCharsets.UTF_8.name())
-								.setLocationStrategy(locationStrategiesDefaults));
+			CompositeConfiguration combinedConfiguration = new CompositeConfiguration();
+			// Important: Overrides must be added first
+			combinedConfiguration.addConfiguration(builderOverride.getConfiguration());
+			combinedConfiguration.addConfiguration(builderDefaults.getConfiguration());
 
-		CompositeConfiguration combinedConfiguration = new CompositeConfiguration();
-		// Important: Overrides must be added first
-		combinedConfiguration.addConfiguration(builderOverride.getConfiguration());
-		combinedConfiguration.addConfiguration(builderDefaults.getConfiguration());
-
-		// return new
-		// AlaConfig(ConfigurationUtils.unmodifiableConfiguration(combinedConfiguration));
-		return ConfigurationUtils.unmodifiableConfiguration(combinedConfiguration);
+			// return new
+			// AlaConfig(ConfigurationUtils.unmodifiableConfiguration(combinedConfiguration));
+			return ConfigurationUtils.unmodifiableConfiguration(combinedConfiguration);
+		} catch (ConfigurationException e) {
+			throw new AlaConfigException(e);
+		}
 	}
 
 	/**
@@ -153,13 +172,16 @@ public abstract class AlaConfig {
 	 * @param propertyName
 	 *            The configuration property to find
 	 * @return The value for the configuration property
-	 * @throws ConversionException
-	 *             If the property cannot be represented as a boolean
-	 * @throws NoSuchElementException
-	 *             If the property cannot be found in the configuration
+	 * @throws AlaConfigException
+	 *             If the property cannot be found in the configuration or
+	 *             represented as a boolean
 	 */
-	public boolean getBoolean(String propertyName) throws ConversionException, NoSuchElementException {
-		return immutableConfig.getBoolean(propertyName);
+	public boolean getBoolean(String propertyName) throws AlaConfigException {
+		try {
+			return immutableConfig.getBoolean(propertyName);
+		} catch (ConversionException | NoSuchElementException e) {
+			throw new AlaConfigException(e);
+		}
 	}
 
 	/**
@@ -172,12 +194,16 @@ public abstract class AlaConfig {
 	 *            The default value to use if the property doesn't have a value
 	 *            assigned to it
 	 * @return The value for the configuration property
-	 * @throws ConversionException
+	 * @throws AlaConfigException
 	 *             If the property cannot be represented as a boolean
 	 */
 	public boolean getBooleanOrDefault(String propertyName, boolean defaultValue)
 			throws ConversionException, NoSuchElementException {
-		return immutableConfig.getBoolean(propertyName, defaultValue);
+		try {
+			return immutableConfig.getBoolean(propertyName, defaultValue);
+		} catch (ConversionException | NoSuchElementException e) {
+			throw new AlaConfigException(e);
+		}
 	}
 
 	/**
@@ -186,9 +212,15 @@ public abstract class AlaConfig {
 	 * @param propertyName
 	 *            The configuration property to find
 	 * @return The value for the configuration property
+	 * @throws AlaConfigException
+	 *             If the property cannot be found in the configuration
 	 */
-	public String get(String propertyName) throws ConversionException {
-		return immutableConfig.getString(propertyName);
+	public String get(String propertyName) throws AlaConfigException {
+		try {
+			return immutableConfig.getString(propertyName);
+		} catch (ConversionException e) {
+			throw new AlaConfigException(e);
+		}
 	}
 
 	/**
@@ -200,9 +232,16 @@ public abstract class AlaConfig {
 	 * @param defaultValue
 	 *            The default to use if the property isn't present
 	 * @return The value for the configuration property
+	 * @throws AlaConfigException
+	 *             If the property found in the configuration was not able to be
+	 *             represented as a String.
 	 */
-	public String getOrDefault(String propertyName, String defaultValue) throws ConversionException {
-		return immutableConfig.getString(propertyName, defaultValue);
+	public String getOrDefault(String propertyName, String defaultValue) throws AlaConfigException {
+		try {
+			return immutableConfig.getString(propertyName, defaultValue);
+		} catch (ConversionException e) {
+			throw new AlaConfigException(e);
+		}
 	}
 
 	/**
@@ -214,15 +253,22 @@ public abstract class AlaConfig {
 	 * @param defaultValue
 	 *            The default to use if the property isn't present
 	 * @return The value for the configuration property
+	 * @throws AlaConfigException
+	 *             If the property cannot be found in the configuration
 	 */
 	public Set<String> getSetOrDefault(String propertyName, String defaultValue, String splitChar)
-			throws ConversionException {
-		Set<String> splitList = Arrays.asList(immutableConfig.getString(propertyName, defaultValue).split(splitChar))
-				.stream().map(String::trim).collect(Collectors.toSet());
-		if (splitList.isEmpty() || (splitList.size() == 1 && splitList.iterator().next().isEmpty())) {
-			return Collections.emptySet();
-		} else {
-			return Collections.unmodifiableSet(splitList);
+			throws AlaConfigException {
+		try {
+			Set<String> splitList = Arrays
+					.asList(immutableConfig.getString(propertyName, defaultValue).split(splitChar)).stream()
+					.map(String::trim).collect(Collectors.toSet());
+			if (splitList.isEmpty() || (splitList.size() == 1 && splitList.iterator().next().isEmpty())) {
+				return Collections.emptySet();
+			} else {
+				return Collections.unmodifiableSet(splitList);
+			}
+		} catch (ConversionException e) {
+			throw new AlaConfigException(e);
 		}
 	}
 
@@ -232,13 +278,16 @@ public abstract class AlaConfig {
 	 * @param propertyName
 	 *            The configuration property to find
 	 * @return The value for the configuration property
-	 * @throws ConversionException
-	 *             If the property cannot be represented as an int
-	 * @throws NoSuchElementException
-	 *             If the property cannot be found in the configuration
+	 * @throws AlaConfigException
+	 *             If the property cannot be found in the configuration or
+	 *             represented as an int
 	 */
-	public int getInt(String propertyName) throws ConversionException, NoSuchElementException {
-		return immutableConfig.getInt(propertyName);
+	public int getInt(String propertyName) throws AlaConfigException {
+		try {
+			return immutableConfig.getInt(propertyName);
+		} catch (ConversionException | NoSuchElementException e) {
+			throw new AlaConfigException(e);
+		}
 	}
 
 	/**
@@ -250,12 +299,16 @@ public abstract class AlaConfig {
 	 *            The default value to use if the property doesn't have a value
 	 *            assigned to it
 	 * @return The value for the configuration property
-	 * @throws ConversionException
-	 *             If the property cannot be represented as an int
+	 * @throws AlaConfigException
+	 *             If the property cannot be found in the configuration or
+	 *             represented as an int
 	 */
-	public int getIntOrDefault(String propertyName, int defaultValue)
-			throws ConversionException, NoSuchElementException {
-		return immutableConfig.getInt(propertyName, defaultValue);
+	public int getIntOrDefault(String propertyName, int defaultValue) throws AlaConfigException {
+		try {
+			return immutableConfig.getInt(propertyName, defaultValue);
+		} catch (ConversionException | NoSuchElementException e) {
+			throw new AlaConfigException(e);
+		}
 	}
 
 	protected org.slf4j.Logger logger() {
@@ -301,197 +354,13 @@ public abstract class AlaConfig {
 		return injector().getInstance(nextClass);
 	}
 
-	public String remoteMediaStoreUrl() {
-		return getOrDefault("media.store.url", "");
-	}
-
-	public boolean hashImageFileNames() {
-		return getBooleanOrDefault("hash.image.filenames", false);
-	}
-
-	public int solrUpdateThreads() {
-		return getIntOrDefault("solr.update.threads", 4);
-	}
-
-	public int cassandraUpdateThreads() {
-		return getIntOrDefault("cassandra.update.threads", 8);
-	}
-
-	public String volunteerHubUid() {
-		return getOrDefault("volunteer.hub.uid", "");
-	}
-
-	public String collectoryApiKey() {
-		return getOrDefault("registry.api.key", "xxxxxxxxxxxxxxxxx");
-	}
-
-	public String loadFileStore() {
-		return getOrDefault("load.dir", "/data/biocache-load/");
-	}
-
-	public String vocabDirectory() {
-		return getOrDefault("vocab.dir", "/data/biocache/vocab/");
-	}
-
-	public String layersDirectory() {
-		return getOrDefault("layers.dir", "/data/biocache/layers/");
-	}
-
-	public String deletedFileStore() {
-		return getOrDefault("deleted.file.store", "/data/biocache-delete/");
-	}
-
-	public String mediaFileStore() {
-		return getOrDefault("media.dir", "/data/biocache-media/");
-	}
-
-	public String mediaBaseUrl() {
-		return getOrDefault("media.url", "http://biocache.ala.org.au/biocache-media");
-	}
-
-	public String excludeSensitiveValuesFor() {
-		return getOrDefault("exclude.sensitive.values", "");
-	}
-
-	public String allowCollectoryUpdates() {
-		return getOrDefault("allow.registry.updates", "false");
-	}
-
-	public String extraMiscFields() {
-		return getOrDefault("extra.misc.fields", "");
-	}
-
-	public String technicalContact() {
-		return getOrDefault("technical.contact", "support@ala.org.au");
-	}
-
-	public String irmngDwcArchiveUrl() {
-		return getOrDefault("irmng.archive.url", "http://www.cmar.csiro.au/datacentre/downloads/IRMNG_DWC.zip");
-	}
-
-	public boolean obeySDSIsLoadable() {
-		return getBooleanOrDefault("obey.sds.is.loadable", true);
-	}
-
-	public String nationalChecklistIdentifierPattern() {
-		return getOrDefault("national.checklist.guid.pattern", "biodiversity.org.au");
-	}
-
-	public List<String> blacklistedMediaUrls() {
-		return null;
-	}
-
-	public String speciesSubgroupsUrl() {
-		return getOrDefault("species.subgroups.url", "http://bie.ala.org.au/subgroups.json");
-	}
-
-	public String listToolUrl() {
-		return getOrDefault("list.tool.url", "http://lists.ala.org.au");
-	}
-
-	public String volunteerUrl() {
-		return getOrDefault("volunteer.url", "http://volunteer.ala.org.au");
-	}
-
-	public String tmpWorkDir() {
-		return getOrDefault("tmp.work.dir", "/tmp");
-	}
-
-	public String registryUrl() {
-		return getOrDefault("registry.url", "http://collections.ala.org.au/ws");
-	}
-
-	public String persistPointsFile() {
-		return getOrDefault("persist.points.file", "");
-	}
-
-	public String flickrUsersUrl() {
-		return getOrDefault("flickr.users.url", "http://auth.ala.org.au/userdetails/external/flickr");
-	}
-
-	public String reindexUrl() {
-		return get("reindex.url");
-	}
-
-	public String reindexData() {
-		return get("reindex.data");
-	}
-
-	public String reindexViewDataResourceUrl() {
-		return get("reindex.data.resource.url");
-	}
-
-	public String layersServiceUrl() {
-		return get("layers.service.url");
-	}
-
-	public boolean layersServiceSampling() {
-		return getBooleanOrDefault("layers.service.sampling", true);
-	}
-
-	public int layerServiceRetries() {
-		return getIntOrDefault("layers.service.retries", 10);
-	}
-
-	public String biocacheServiceUrl() {
-		return getOrDefault("webservices.root", "http://biocache.ala.org.au/ws");
-	}
-
-	public int solrBatchSize() {
-		return getIntOrDefault("solr.batch.size", 1000);
-	}
-
-	public int solrHardCommitSize() {
-		return getIntOrDefault("solr.hardcommit.size", 10000);
-	}
-
-	public Set<String> stateProvincePrefixFields() {
-		return getSetOrDefault("species.list.prefix", "stateProvince", ",");
-	}
-
-	public Set<String> speciesListIndexValues() {
-		return getSetOrDefault("species.list.index.keys", "category,status,sourceStatus", ",");
-	}
-
-	public boolean loadSpeciesLists() {
-		return getBooleanOrDefault("include.species.lists", false);
-	}
-
-	public boolean taxonProfilesEnabled() {
-		return getBooleanOrDefault("taxon.profiles.enabled", true);
-	}
-
-	public String localNodeIp() {
-		return getOrDefault("local.node.ip", "127.0.0.1");
-	}
-
-	public String zookeeperAddress() {
-		return getOrDefault("zookeeper.address", "127.0.0.1:2181");
-	}
-
-	public boolean zookeeperUpdatesEnabled() {
-		return getBooleanOrDefault("zookeeper.updates.enabled", false);
-	}
-
-	public int nodeNumber() {
-		return getIntOrDefault("node.number", 0);
-	}
-
-	public int cassandraTokenSplit() {
-		return getIntOrDefault("cassandra.token.split", 1);
-	}
-
-	public int clusterSize() {
-		return getIntOrDefault("cluster.size", 1);
-	}
-
 	/**
+	 * Get a config property as a string.
 	 * 
 	 * @param propertyName
-	 * @return
-	 * @deprecated Use {@link #get(String)} instead.
+	 *            The configuration property to find
+	 * @return The value for the configuration property
 	 */
-	@Deprecated
 	public String getProperty(String propertyName) {
 		return get(propertyName);
 	}
@@ -501,62 +370,12 @@ public abstract class AlaConfig {
 				"ala-config configuration dump at: " + DateTimeFormatter.ISO_DATE_TIME.format(OffsetDateTime.now()));
 	}
 
-	public String stateProvinceLayerID() {
-		return getOrDefault("layer.state.province", "cl927");
-	}
-
-	public String terrestrialLayerID() {
-		return getOrDefault("layer.terrestrial", "cl1048");
-	}
-
-	public String marineLayerID() {
-		return getOrDefault("layer.marine", "cl21");
-	}
-
-	public String countriesLayerID() {
-		return getOrDefault("layer.countries", "cl932");
-	}
-
-	public String localGovLayerID() {
-		return getOrDefault("layer.localgov", "cl959");
-	}
-
-	public boolean gridRefIndexingEnabled() {
-		return getBooleanOrDefault("gridref.indexing.enabled", false);
-	}
-
-	public String defaultCountry() {
-		return getOrDefault("default.country", "Australia");
-	}
-
 	public java.util.Properties versionProperties() {
 		return null;
 	}
 
-	public Set<String> additionalFieldsToIndex() {
-		return getSetOrDefault("additional.fields.to.index", "", ",");
-	}
-
-	public String sdsUrl() {
-		return getOrDefault("sds.url", "http://sds.ala.org.au");
-	}
-
-	public boolean sdsEnabled() {
-		return getBooleanOrDefault("sds.enabled", true);
-	}
-
-	public Set<String> sensitiveFields() {
-		return getSetOrDefault("sensitive.field",
-				"originalSensitiveValues,originalDecimalLatitude,originalDecimalLongitude,originalLocationRemarks,originalVerbatimLatitude,originalVerbatimLongitude",
-				",");
-	}
-
-	public String exportIndexAsCsvPath() {
-		return getOrDefault("export.index.as.csv.path", "");
-	}
-
-	public String exportIndexAsCsvPathSensitive() {
-		return getOrDefault("export.index.as.csv.path.sensitive", "");
+	public String tmpWorkDir() {
+		return getOrDefault("tmp.work.dir", "/tmp");
 	}
 
 }
