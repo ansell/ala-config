@@ -9,9 +9,9 @@
 		<version>0.0.1-SNAPSHOT</version>
 	</parent>
 
-	<artifactId>ala-config-api</artifactId>
-	<name>ALA Config API</name>
-	<description>API for ALA Config</description>
+	<artifactId>ala-config-biocache</artifactId>
+	<name>ALA Config for Biocache applications</name>
+	<description>Implementation of ALA Config for Biocache applications</description>
 	<packaging>jar</packaging>
 
 	<url>https://github.com/ansell/ala-config/</url>
@@ -34,6 +34,11 @@
 	</developers>
 
 	<dependencies>
+		<dependency>
+			<groupId>${project.groupId}</groupId>
+			<artifactId>ala-config-api</artifactId>
+			<version>${project.version}</version>
+		</dependency>
 		<dependency>
 			<groupId>org.apache.commons</groupId>
 			<artifactId>commons-configuration2</artifactId>
